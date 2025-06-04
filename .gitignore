@@ -1,2 +1,3 @@
 *.pth
 LLM_finetuning.ipynb # 아직 위험하면
+*.pyc
