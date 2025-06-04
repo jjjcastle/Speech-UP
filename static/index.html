@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>Speech up</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    #videoWrapper {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    #videoStream {
+      width: 320px;
+      height: auto;
+      border-radius: 12px;
+      box-shadow: 0 6px 12px rgba(94, 44, 165, 0.15);
+    }
+    #randomQuestionBox {
+      background-color: #eee6f9;
+      padding: 14px;
+      border-radius: 12px;
+      margin-top: 12px;
+      font-size: 16px;
+      font-weight: 500;
+      color: #2c1e4a;
+      animation: slideDownFade 0.5s ease;
+    }
+
+    @keyframes slideDownFade {
+      from {
+        opacity: 0;
+        transform: translateY(-15px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Speech Up</h1>
+
+  <div class="container">
+    <!-- 왼쪽 영역 -->
+    <div class="left-panel">
+      <label for="sessionIdInput">ID</label>
+      <input type="text" id="sessionIdInput" placeholder="세션 ID (0~99)" />
+
+      <div>
+        <h2>질문</h2>
+        <button onclick="pickRandomQuestion()">질문 뽑기</button>
+        <div id="randomQuestionBox"><strong>선택된 질문:</strong> <span id="randomQuestion">-</span></div>
+
+        <div id="videoWrapper">
+          <button id="toggleVideoBtn">카메라 시작 & 음성 녹음</button>
+          <div id="videoSection" style="display: none;">
+            <img id="videoStream" src="" alt="Video Stream">
+          </div>
+        </div>
+      </div>
+
+      <div class="result-section">
+        <button onclick="processVideo()">분석</button>
+
+        <div id="loadingSpinner" style="display: none; text-align: center; margin: 20px 0;">
+          <div class="spinner"></div>
+          <div class="loading-text">로딩 중...</div>
+        </div>
+
+        <h2>🎤억양 흐름 분석 결과</h2>
+        <span id="voiceResult">-</span>
+
+        <h2>📝 문장 구조 분석 결과</h2>
+        <span id="transcriptText">-</span>
+
+        <h2>😄 비언어적 표현 분석 결과</h2>
+        <span id="visionResult">-</span>
+
+        <h2>☀︎ 최종 피드백 결과</h2>
+        <span id="finalFeedBack">-</span>
+
+      </div>
+    </div>
+  </div>
+
+<script>
+  const SERVER_URL = "http://127.0.0.1:8000";
+  const toggleBtn = document.getElementById("toggleVideoBtn");
+  const videoStreamImg = document.getElementById("videoStream");
+  const videoSection = document.getElementById("videoSection");
+  const randomQuestionBox = document.getElementById("randomQuestionBox");
+  const questionSpan = document.getElementById("randomQuestion");
+  let isStreaming = false;
+
+  toggleBtn.onclick = async () => {
+    const sessionIdInput = document.getElementById("sessionIdInput");
+    let sessionId = sessionIdInput.value.trim();
+    const formData = new FormData();
+    if (sessionId !== "") formData.append("session_id", sessionId);
+
+    if (!isStreaming) {
+      const res = await fetch(SERVER_URL + "/start-video", {
+        method: "POST",
+        body: formData
+      });
+      const data = await res.json();
+      sessionId = data.session_id;
+      sessionIdInput.value = sessionId;
+
+      videoStreamImg.src = SERVER_URL + "/video_feed";
+      toggleBtn.textContent = "카메라 & 음성 정지";
+      videoSection.style.display = "block";
+      isStreaming = true;
+    } else {
+      const formDataStop = new FormData();
+      formDataStop.append("session_id", sessionId);
+
+      await fetch(SERVER_URL + "/stop-video", {
+        method: "POST",
+        body: formDataStop
+      });
+
+      videoStreamImg.src = "";
+      toggleBtn.textContent = "카메라 시작 & 음성 녹음";
+      videoSection.style.display = "none";
+      isStreaming = false;
+    }
+  };
+
+  function pickRandomQuestion() {
+    const questions = [
+      "Why do you want to work at our company?",
+      "What is your greatest strength and how has it helped you in your work or studies?",
+      "What are your long-term career goals?",
+      "When do you feel the happiest?",
+      "What is your life motto, and why?"
+    ];
+    const randomIndex = Math.floor(Math.random() * questions.length);
+    questionSpan.textContent = questions[randomIndex];
+    randomQuestionBox.style.animation = 'none';
+    randomQuestionBox.offsetHeight; // reflow 강제
+    randomQuestionBox.style.animation = null;
+  }
+async function processVideo() {
+  const sessionId = document.getElementById("sessionIdInput").value.trim();
+  const question = questionSpan.textContent;
+  const formData = new FormData();
+  formData.append("session_id", sessionId);
+  formData.append("question", question);
+  // 🔽 로딩 스피너 표시
+  document.getElementById("loadingSpinner").style.display = "block";
+
+  try {
+    const res = await fetch(SERVER_URL + "/process-video", {
+      method: "POST",
+      body: formData
+    });
+
+    const data = await res.json();
+    console.log("처리 결과:", data);
+
+    if (data.result) {
+      document.getElementById("visionResult").textContent = data.result;
+    } else {
+      alert(data.error || "처리 중 오류가 발생했습니다.");
+    }
+
+    if (data.transcript || data.lan_correct) {
+      const recognized = data.transcript || "(전사 실패)";
+      const corrected = data.lan_correct || "(교정 실패)";
+      document.getElementById("transcriptText").innerHTML =
+        `⚠️인식된 문장: ${recognized}<br>😊교정된 문장: <b>${corrected}</b>`;
+    } else {
+      document.getElementById("transcriptText").textContent = "(전사 실패)";
+    }
+
+    if (data.audio_eval) {
+      document.getElementById("voiceResult").textContent = data.audio_eval;
+    }
+
+const feedbackEl = document.getElementById("finalFeedBack");
+  if (!data.transcript || data.transcript === "(전사 실패)") {
+  // 전사가 없거나 실패한 경우
+  feedbackEl.textContent = "전사가 제대로 되지 않아 피드백이 불가능합니다. 다시 녹음해주세요.🥹";
+} else if (data.final_feedback) {
+  // 전사는 정상인데 피드백이 있는 경우
+  const rawFeedback = data.final_feedback;
+  const formattedFeedback = rawFeedback
+    .replace("🎯 등급은", "<b>🎯 등급:</b>")
+    .replace("좋았던 점:", "<b>좋았던 점:</b>")
+    .replace("개선할 점:", "<b>개선할 점:</b>")
+    .replace(/\n/g, "<br>"); // 줄바꿈 처리
+
+  feedbackEl.innerHTML = formattedFeedback || "(피드백 없음)";
+} else {
+  // 전사는 정상인데 final_feedback이 없거나 빈 문자c열인 경우
+  feedbackEl.textContent = "(피드백 없음)";
+}
+
+
+  } catch (err) {
+    console.error("에러 발생:", err);
+    alert("요청 처리 중 문제가 발생했습니다.");
+  } finally {
+    // 🔽 로딩 스피너 숨김
+    document.getElementById("loadingSpinner").style.display = "none";
+  }
+}
+
+</script>
+</body>
+</html>
